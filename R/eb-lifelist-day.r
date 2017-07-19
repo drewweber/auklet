@@ -4,28 +4,30 @@
 #' seen on that day regardless of year. For each species, the year in which that
 #' species was first observed is shown. Use [summary()] to summarize the list of
 #' species seen each day into counts of the number of species seen each day.
-#' To visualize your day life lists, use [plot()].
+#' To visualize your day life lists, use [plot()]. The concept of the daily
+#' life list was introduced to me by [Drew Weber](http://www.nemesisbird.com/).
 #'
 #' @param x [eb_sightings] object; your personal eBird sightings
 #'
-#' @return A [dplyr::tibble], with additional class `eb_daylist`, containing
-#'   your personal sightings.
+#' @return A [dplyr::tibble], with additional class `eb_lifelist_day`,
+#'   containing your personal sightings.
 #' @export
 #' @examples
-#' day_list <- system.file("extdata/MyEBirdData.csv", package = "ebird") %>%
+#' day_list <- system.file("extdata/MyEBirdData.csv", package = "auklet") %>%
 #'   eb_sightings() %>%
-#'   eb_daylist()
+#'   eb_lifelist_day()
 #' summary(day_list)
-#' plot(day_list, target = 50)
-eb_daylist <- function(x) {
-  UseMethod("eb_daylist")
+#' plot(day_list)
+eb_lifelist_day <- function(x) {
+  UseMethod("eb_lifelist_day")
 }
 
 #' @export
-eb_daylist.eb_sightings <- function(x) {
+eb_lifelist_day.eb_sightings <- function(x) {
   # determine species list
-  day_list <- x %>%
-    dplyr::filter(!is.na(.data$report_as)) %>%
+  day_list <- eb_countable(x) %>%
+    # remove life list uploads
+    dplyr::filter(.data$date != as.Date("1900-01-01")) %>%
     dplyr::mutate(year = lubridate::year(.data$date),
                   month = lubridate::month(.data$date),
                   day = lubridate::day(.data$date)) %>%
@@ -45,20 +47,25 @@ eb_daylist.eb_sightings <- function(x) {
     dplyr::rename(species_code = .data$report_as) %>%
     dplyr::arrange(.data$month, .data$day, .data$year, .data$species_code)
 
-  class(day_list) <- c("eb_daylist", class(day_list))
+  class(day_list) <- c("eb_lifelist_day", class(day_list))
   return(day_list)
 }
 
-#' @param object `eb_daylist` object; your daily life lists.
+#' @export
+eb_lifelist_day.data.frame <- function(x) {
+  eb_lifelist_day.eb_sightings(df_to_eb(x))
+}
+
+#' @param object `eb_lifelist_day` object; your daily life lists.
 #' @param by_year logical; whether to retain the year first when tallying up
 #'   species. Set this to `TRUE` if, for example, you're interested in how many
 #'   new species you added each year on a given day.
 #' @param ... not used
 #'
-#' @describeIn eb_daylist Summarize daily life lists into counts of species seen
-#'   on each day.
+#' @describeIn eb_lifelist_day Summarize daily life lists into counts of species
+#'   seen on each day.
 #' @export
-summary.eb_daylist <- function(object, by_year = FALSE, ...) {
+summary.eb_lifelist_day <- function(object, by_year = FALSE, ...) {
   stopifnot(is.logical(by_year), length(by_year) == 1)
 
   # tally up species seen each day
@@ -77,25 +84,17 @@ summary.eb_daylist <- function(object, by_year = FALSE, ...) {
   }
 }
 
-#' @param target numeric; add a line to the plot showing your targeted number
-#'   of species to see each day.
 #' @param title character; plot title.
 #' @param subtitle character; plot subtitle.
-#' @describeIn eb_daylist Visualize your day life lists
+#' @describeIn eb_lifelist_day Visualize your day life lists
 #' @export
-plot.eb_daylist <- function(x, target, title, subtitle, ...) {
+plot.eb_lifelist_day <- function(x, title, subtitle, ...) {
   # daily counts
   x <- summary(x, by_year = TRUE) %>%
     # use 2016 becaues it's a leap year
     dplyr::mutate(date = lubridate::ymd(paste(2016, .data$month, .data$day,
                                               sep = "-")))
 
-  # put target at 0 if not given
-  if (missing(target)) {
-    target <- 0
-  } else {
-    stopifnot(is.numeric(target), length(target) == 1)
-  }
   # default titles
   if (missing(title)) {
     title <- "eBird Daily Life Lists"
@@ -117,8 +116,8 @@ plot.eb_daylist <- function(x, target, title, subtitle, ...) {
   # y axis
   yrng <- dplyr::group_by(x, .data$month, .data$day) %>%
     dplyr::summarize(n = sum(.data$n))
+  ymean <- sum(yrng$n) / 365
   ymax <- max(yrng$n)
-  ymax <- max(ymax, target)
   # determin sensible breaks
   if (ymax < 200) {
     brk <- 25
@@ -132,7 +131,7 @@ plot.eb_daylist <- function(x, target, title, subtitle, ...) {
 
   # plot
   ggplot2::ggplot(x, ggplot2::aes_string(x = "date", y = "n")) +
-    ggplot2::geom_hline(yintercept = target, color = "light blue", size = 1) +
+    ggplot2::geom_hline(yintercept = ymean, color = "light blue", size = 1) +
     ggplot2::geom_bar(ggplot2::aes_string(fill = "year"), stat = "identity",
                       width = 1) +
     ggplot2::geom_hline(yintercept = 0, color = "#666666", size = 1.5) +
